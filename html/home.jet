@@ -41,6 +41,8 @@
         <div class="col-md-8">
           <h3>Chat</h3>
 
+          <p><a href="https://github.com">Go to</a></p>
+
           <div class="form-group">
             <label for="username">Username</label>
             <input
@@ -63,38 +65,134 @@
             />
           </div>
 
+          <hr />
+          <a
+            href="javascript:void(0);"
+            id="sendBtn"
+            class="btn btn-outline-secondary"
+            >Send Message</a
+          >
+
           <input type="hidden" name="action" id="action" />
 
-          <hr />
-          <div id="output" class="chatbox"></div>
+          <div id="status" class="mt-2 float-end"></div>
+
+          <div id="output" class="chatbox mt-3"></div>
         </div>
         <div class="col-md-4">
           <h3>Who's Online</h3>
+
+          <ul id="online_users"></ul>
         </div>
       </div>
     </div>
+
+    <script src="/static/reconnecting-websocket.min.js"></script>
+
     <script>
       let socket = null;
+      const messageField = document.querySelector("#message");
+      const userField = document.querySelector("#username");
+      const ul = document.querySelector("#online_users");
+      const output = document.querySelector("#output");
+      const sendBtn = document.querySelector("#sendBtn");
+      const status = document.querySelector("#status");
+
+      // cleanup code
+      window.onbeforeunload = function () {
+        console.log("leaving");
+        let jsonData = {};
+        jsonData["action"] = "left";
+        socket.send(JSON.stringify(jsonData));
+      };
+
       document.addEventListener("DOMContentLoaded", function () {
-        socket = new WebSocket("ws://127.0.0.1:8080/ws");
+        socket = new ReconnectingWebSocket("ws://127.0.0.1:8080/ws", null, {
+          debug: true,
+          reconnectInterval: 3000,
+        });
         socket.onopen = () => {
           console.log("Successfully connected");
+          status.innerHTML = online;
         };
 
+        const online = `<span class="badge bg-success">Connected</span>`;
+        const offline = `<span class="badge bg-danger">Disconnected</span>`;
         socket.onclose = () => {
-          console.log("connection closed!");
+          status.innerHTML = offline;
         };
 
         socket.onerror = (error) => {
-          console.log("there was an error");
+          status.innerHTML = offline;
         };
 
         socket.onmessage = (msg) => {
-          console.log(msg);
-          const j = JSON.parse(msg.data);
-          console.log(j);
+          const data = JSON.parse(msg.data);
+          console.log("action is ", data.action);
+
+          switch (data.action) {
+            case "list_users":
+              // empty the list
+              while (ul.firstChild) {
+                ul.removeChild(ul.firstChild);
+              }
+              if (data.connected_users.length > 0) {
+                data.connected_users.forEach((item) => {
+                  const li = document.createElement("li");
+                  li.appendChild(document.createTextNode(item));
+                  ul.appendChild(li);
+                });
+              }
+              break;
+
+            case "broadcast":
+              output.innerHTML += data.message + "<br>";
+              break;
+          }
         };
+
+        userField.addEventListener("change", function () {
+          let jsonData = {};
+          jsonData["action"] = "username";
+          jsonData["username"] = this.value;
+          socket.send(JSON.stringify(jsonData));
+        });
+
+        messageField.addEventListener("keydown", function (event) {
+          if (event.code === "Enter") {
+            if (!socket) {
+              console.log("no connection");
+              return false;
+            }
+            if (userField.value === "" || messageField.value === "") {
+              alert("fill out username and message");
+              return;
+            } else {
+              sendMessage();
+            }
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        });
+
+        sendBtn.addEventListener("click", function () {
+          if (userField.value === "" || messageField.value === "") {
+            alert("fill out username and message");
+            return;
+          } else {
+            sendMessage();
+          }
+        });
       });
+
+      function sendMessage() {
+        const jsonData = {};
+        jsonData["action"] = "broadcast";
+        jsonData["username"] = userField.value;
+        jsonData["message"] = messageField.value;
+        socket.send(JSON.stringify(jsonData));
+        messageField.value = "";
+      }
     </script>
   </body>
 </html>
